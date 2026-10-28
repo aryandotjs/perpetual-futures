@@ -1,0 +1,48 @@
+# Dependency directories
+node_modules/
+jspm_packages/
+web_modules/
+
+# Build outputs and distribution directories
+dist/
+build/
+out/
+.next/
+.nuxt/
+.docusaurus/
+.cache/
+
+# Debug and error logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Environments and Secrets (CRITICAL - Do not commit)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.*.local
+*.env
+*.pem
+*.key
+
+# Editor and System files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+.DS_Store
+Thumbs.db
+
+# Optional: Testing and coverage reports
+coverage/
+.nyc_output/
+cypress/videos/
+cypress/screenshots/
