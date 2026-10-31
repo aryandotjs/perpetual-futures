@@ -2,10 +2,19 @@ import { order } from "../../../../packages/common/src";
 
 
 export type fill = {
-    makerOrderId: string,
-    makerUserId: string
+    market: string
     price: string,
     matchedQuantity: string
+
+    takerUserId: string
+    takerOrderId: string
+    takerLevrage: string
+
+    makerUserId: string
+    makerOrderId: string,
+    makerLevrage: string
+
+    isMakerBuyer: boolean
 }
 
 export class Orderbook {
@@ -27,9 +36,8 @@ export class Orderbook {
                 this.bids.push(BidOrder)
                 this.bids.sort((a, b) => Number(a.price) - Number(b.price))
             }
-            return { fills, BidOrder }
+            return { fills, finalOrder: BidOrder }
         } else {
-
         }
 
     }
@@ -54,10 +62,19 @@ export class Orderbook {
                     remainingQuantity = (Number(remainingQuantity) - matched)
 
                     fills.push({
+                        market: BidOrder.market,
+                        price: askOrder.price,
+                        matchedQuantity: matched.toString(),
+
+                        takerUserId: BidOrder.userId,
+                        takerOrderId: BidOrder.orderId,
+                        takerLevrage: BidOrder.leverage,
+
                         makerOrderId: askOrder.orderId,
                         makerUserId: askOrder.userId,
-                        price: askOrder.price,
-                        matchedQuantity: matched.toString()
+                        makerLevrage: askOrder.leverage,
+
+                        isMakerBuyer: askOrder.side === "buy" ? true : false
                     })
 
                     this.asks[i].filled = this.asks[i].filled + matched

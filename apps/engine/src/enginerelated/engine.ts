@@ -3,6 +3,7 @@ import { ApiToEngine, order, ProcessesCompletion, ProcessesRejection } from "../
 import { SendBackToBackend } from "../toBackend";
 import { fill, Orderbook } from "./orderbookclass";
 import { randomUUID } from "node:crypto";
+import { positionManager } from "./positionManager";
 type balance = {
     [key: string]: {
         available: string
@@ -13,32 +14,34 @@ export class Engine {
 
     private balances: Map<string, balance> = new Map()
     private orderbooks: Orderbook[] = [];
+    private positionsManager: positionManager;
 
     constructor() {
         const solOrderbook = new Orderbook("SOL_USD", [], [])
         this.orderbooks.push(solOrderbook)
+        this.positionsManager = new positionManager()
     }
+
     inspectAndLockBalance(userId: string, market: string, price: string, quantity: string, leverage: string) {
         const userBalance: balance | undefined = this.balances.get(userId)
-        if (!userBalance || !userBalance["USD"]) throw Error("invalid userId ha")
+        if (!userBalance || !userBalance["USD"]) throw Error("invalid userId ")
 
-        const marginInNumber = (Number(price) * Number(quantity))
+        const marginInNumber = (Number(price) * Number(quantity)) / Number(leverage)
 
         if (Number(userBalance["USD"].available) >= marginInNumber) {
 
             userBalance["USD"].available = (Number(userBalance["USD"].available) - marginInNumber).toString()
-            userBalance["USD"].locked = marginInNumber.toString()
-
-            throw Error("locked and saved acc")
+            userBalance["USD"].locked = (Number(userBalance["USD"].locked) + marginInNumber).toString()
 
         }
     }
+
     process({ requestId, data }: { requestId: string, data: ApiToEngine }) {
         switch (data.type) {
 
             case "ADD_ORDER":
                 try {
-                    const { userId, market, price, quantity, leverage, side, orderType, time } = data.payload
+                    const { userId, market, price, quantity, leverage, side, orderType } = data.payload
 
                     const orderbook = this.orderbooks.find(a => a.getMarket() === market)
 
@@ -56,13 +59,12 @@ export class Engine {
                         orderId: randomUUID(),
                         side,
                         orderType,
-                        time
+                        time: Date.now()
                     }
+                    // @ts-ignore
+                    const { fills } = orderbook.addOrder(order)
 
-                    const { fills, BidOrder } = orderbook.addOrder(order)
-
-                    this.updateUserBalance(fills, BidOrder)
-
+                    this.handleFills(fills, market)
 
                 } catch (err: any) {
                     SendBackToBackend({
@@ -206,12 +208,37 @@ export class Engine {
         }
     }
 
+    handleFills(fills: fill[], market: string) {
 
-    updateUserBalance(fills: fill[], BidOrder: order) {
-        fills.forEach(fill => {
+        fills.forEach((fill: fill) => {
+
+            const makerMatchedQty = fill.isMakerBuyer ? fill.matchedQuantity : `-${fill.matchedQuantity}`
+            const takerMatchedQty = fill.isMakerBuyer ? `-${fill.matchedQuantity}` : fill.matchedQuantity
+
+            const resultMaker = this.positionsManager.addPosition(fill.makerUserId, market, fill.makerLevrage, makerMatchedQty, fill.price)
+
+            if (resultMaker) {
+                const userBalance = this.balances.get(fill.makerUserId)
+                if (!userBalance) throw Error("error updating profit and loss")
+
+                userBalance[market].available = (Number(userBalance[market].available) + Number(resultMaker.profitOrLoss)).toString()
 
 
+                /// was confused becouse of the loss thign here complete here after sleep 
 
-        })
+                // userBalance[market].locked = (Number(userBalance[market].locked) - resultMaker.reducedMargin).toString()
+                // userBalance[market].available = (Number(userBalance[market].available) + resultMaker.reducedMargin).toString()
+            }
+
+            const resultTaker = this.positionsManager.addPosition(fill.takerUserId, market, fill.takerLevrage, takerMatchedQty, fill.price)
+
+            if (resultTaker) {
+                const userBalance = this.balances.get(fill.takerUserId)
+                if (!userBalance) throw Error("error updating profit and loss")
+                userBalance[market].available = (Number(userBalance[market].available) + Number(resultTaker.profitOrLoss)).toString()
+            }
+        });
+
     }
+
 }

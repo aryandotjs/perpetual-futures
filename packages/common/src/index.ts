@@ -58,7 +58,6 @@ export type ApiToEngine = {
         userId: string,
         side: "sell" | "buy"
         orderType: "market" | "limit"
-        time: number
     }
 }
 
