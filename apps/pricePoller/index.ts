@@ -7,23 +7,54 @@ const buyBitUrl = 'wss://stream.bybit.com/v5/public/linear'
 
 
 const binanceMess = {
-    "method": "SUBSCRIBE",
-    "params": [
+    method: "SUBSCRIBE",
+    params: [
         "btcusdt@aggTrade",
-        "ethusdt@aggTrade"
+        "ethusdt@aggTrade",
+        "solusdt@aggTrade",
+        "xrpusdt@aggTrade",
+        "bnbusdt@aggTrade",
+        "dogeusdt@aggTrade",
+        "suiusdt@aggTrade",
+        "linkusdt@aggTrade",
+        "adausdt@aggTrade",
+        "avaxusdt@aggTrade",
     ],
-    "id": "e9d6b4349871b40611412680b3445fac"
-}
+    id: "e9d6b4349871b40611412680b3445fac",
+};
 
 const buyBitMess = {
-    "op": "subscribe",
-    "args": ["publicTrade.BTCUSDT", "publicTrade.ETHUSDT"]
-}
+    op: "subscribe",
+    args: [
+        "publicTrade.BTCUSDT",
+        "publicTrade.ETHUSDT",
+        "publicTrade.SOLUSDT",
+        "publicTrade.XRPUSDT",
+        "publicTrade.BNBUSDT",
+        "publicTrade.DOGEUSDT",
+        "publicTrade.SUIUSDT",
+        "publicTrade.LINKUSDT",
+        "publicTrade.ADAUSDT",
+        "publicTrade.AVAXUSDT",
+    ],
+};
+
 const coinBaseMess = {
-    "type": "subscribe",
-    "product_ids": ["BTC-USD", "ETH-USD"],
-    "channel": "ticker"
-}
+    type: "subscribe",
+    product_ids: [
+        "BTC-USD",
+        "ETH-USD",
+        "SOL-USD",
+        "XRP-USD",
+        "BNB-USD",
+        "DOGE-USD",
+        "SUI-USD",
+        "LINK-USD",
+        "ADA-USD",
+        "AVAX-USD",
+    ],
+    channel: "ticker",
+};
 
 const redisClient = createClient({ url: "redis://localhost:6379" })
 
@@ -36,14 +67,10 @@ async function connectClient() {
 let count = 0
 let sec = 0
 
-setInterval(() => {
-    console.log("============================================================================================", count, sec)
-    sec++
-}, 1000);
+
 connectClient()
 
 const priceMap = new Map()
-
 
 
 function connectBinance() {
@@ -66,8 +93,6 @@ function connectBinance() {
                 if (lastPrice != a.data.p) {
                     priceMap.set(stream + "binance", a.data.p)
                     getAvgPriceAndPublish(stream)
-                    console.log("binance")
-
                 }
 
             }
@@ -105,7 +130,7 @@ function connectBuybit() {
                     if (lastPrice != a.p) {
                         priceMap.set(stream + "buybit", a.p)
                         getAvgPriceAndPublish(stream)
-                        console.log("buyBitUrl")
+                        // console.log("buyBitUrl")
                     }
                 }
             })
@@ -139,7 +164,6 @@ function connectCoinBase() {
                         if (lastPrice != t.price) {
                             priceMap.set(stream + "coinBase", t.price)
                             getAvgPriceAndPublish(stream)
-                            console.log("coinbae")
                         }
 
                     })
@@ -166,7 +190,6 @@ async function getAvgPriceAndPublish(market: string) {
     if (binance && buybit && coinBase) {
 
         const avgPrice = (Number(binance) + Number(buybit) + Number(coinBase)) / 3
-        console.log(avgPrice, market)
         count++
         try {
             await redisClient.xAdd("stream:prices", "*", {
@@ -191,3 +214,6 @@ async function getAvgPriceAndPublish(market: string) {
 connectCoinBase()
 connectBinance()
 connectBuybit()
+
+
+
