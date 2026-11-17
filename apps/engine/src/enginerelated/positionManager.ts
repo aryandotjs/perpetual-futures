@@ -15,19 +15,28 @@ type position = {
     leverage: string,
     quantity: string,
     avgPrice: string,
-    lockedMargin: string
+    lockedMargin: string,
+    liquidationPrice: string
 }
 
 
 export class positionManager {
-    positions: Map<string, position>;
+
+    positionsByKey: Map<string, position>;
+
+    positionsByMarket: Map<string, position>;
 
     constructor() {
-        this.positions = new Map()
+        this.positionsByKey = new Map()
+        this.positionsByMarket = new Map()
+    }
+
+    LiquidationCheckForTickerPrice(market: string, price: string) {
+        console.log("lega ")
     }
 
     addPosition(userId: string, market: string, leverage: string, quantity: string, price: string) {
-        const userPosition = this.positions.get(`${userId}_${market}`)
+        const userPosition = this.positionsByKey.get(`${userId}_${market}`)
 
         if (!userPosition) {
             this.addNewPosition(userId, market, leverage, quantity, price)
@@ -46,13 +55,14 @@ export class positionManager {
 
     addNewPosition(userId: string, market: string, leverage: string, quantity: string, price: string) {
 
-        this.positions.set(`${userId}_${market}`, {
+        this.positionsByKey.set(`${userId}_${market}`, {
             userId,
             market,
             quantity: quantity,
             avgPrice: price,
             leverage: leverage,
-            lockedMargin: (Number(quantity) * Number(price) / Number(leverage)).toString()
+            lockedMargin: (Number(quantity) * Number(price) / Number(leverage)).toString(),
+            liquidationPrice: ""
         })
 
     }
@@ -90,7 +100,7 @@ export class positionManager {
 
         } else if (Math.abs(userQty) === Math.abs(qty)) {
 
-            this.positions.delete(`${userPosition.userId}_${userPosition.market}`)
+            this.positionsByKey.delete(`${userPosition.userId}_${userPosition.market}`)
 
             const reducedMargin = (Math.abs(qty) * Number(userPosition.avgPrice)) / Number(userPosition.leverage)
 
@@ -104,7 +114,7 @@ export class positionManager {
 
             const reducedMargin = (Number(userPosition.quantity) * Number(userPosition.avgPrice)) / Number(userPosition.leverage)
 
-            this.positions.delete(`${userPosition.userId}_${userPosition.market}`)
+            this.positionsByKey.delete(`${userPosition.userId}_${userPosition.market}`)
 
             this.addNewPosition(userPosition.userId, userPosition.market, userPosition.leverage, newQty, price)
 
@@ -150,37 +160,51 @@ export class positionManager {
 
     }
 
-    liquidationChecker(markPrice: string) {
 
-        this.positions.forEach((position) => {
+    //////////////////////// diff breed 
 
-            const UnrealizedProfitOrLoss = this.calculateUnrealizedPandL(position, markPrice)
+    // liquidationChecker(markPrice: string) {
 
-            const margin = (Number(position.avgPrice) * Math.abs(Number(position.quantity)) / Number(position.leverage))
-            const maintenanceMargin = margin * 0.5
+    //     const liquidatedUsers: any[] = []
 
-            if (Number(UnrealizedProfitOrLoss) < 0 && maintenanceMargin < Math.abs(Number(UnrealizedProfitOrLoss))) {
-                // liquidation logic
-            }
+    //     this.positions.forEach((position) => {
+    //         const UnrealizedProfitOrLoss = this.calculateUnrealizedPandL(position, markPrice)
 
-        })
+    //         const margin = (Number(position.avgPrice) * Math.abs(Number(position.quantity)) / Number(position.leverage))
+    //         const maintenanceMargin = margin * 0.5
 
-    }
+    //         if (Number(UnrealizedProfitOrLoss) < 0 && maintenanceMargin < Math.abs(Number(UnrealizedProfitOrLoss))) {
+    //             // this.liquadateUser(position.userId, position.market)
 
+    //             /////////////we have to add a opp order what ever order we close 
+    //             liquidatedUsers.push({
+    //                 userId: position.userId,
+    //                 market: position.market,
+    //                 margin
+    //             })
+    //         }
 
-    calculateUnrealizedPandL(position: position, markPrice: string) {
+    //     })
+    //     return liquidatedUsers;
+    // }
 
-        if (Number(position.quantity) > 0) {
+    // calculateUnrealizedPandL(position: position, markPrice: string) {
 
-            const ProfitOrLoss = ((Number(markPrice) - Number(position.avgPrice)) * Math.abs(Number(position.quantity))).toString()
-            return ProfitOrLoss
+    //     if (Number(position.quantity) > 0) {
 
-        } else {
+    //         const ProfitOrLoss = ((Number(markPrice) - Number(position.avgPrice)) * Math.abs(Number(position.quantity))).toString()
+    //         return ProfitOrLoss
 
-            const ProfitOrLoss = ((Number(position.avgPrice) - Number(markPrice)) * Math.abs(Number(position.quantity))).toString()
-            return ProfitOrLoss
+    //     } else {
 
-        }
+    //         const ProfitOrLoss = ((Number(position.avgPrice) - Number(markPrice)) * Math.abs(Number(position.quantity))).toString()
+    //         return ProfitOrLoss
 
-    }
+    //     }
+
+    // }
+
+    // liquadateUser(userId: string, market: string) {
+    //     this.positions.delete(`${userId}_${market}`)
+    // }
 }
