@@ -207,4 +207,29 @@ export class positionManager {
     // liquadateUser(userId: string, market: string) {
     //     this.positions.delete(`${userId}_${market}`)
     // }
+
+
+
+    stringToScaledBigInt(price: string) {
+        const input = price.trim()
+
+        const dotIndex = input.indexOf(".");
+
+        const wholePart = dotIndex === -1 ? input : input.slice(0, dotIndex);
+        const fracPart = dotIndex === -1 ? "" : input.slice(dotIndex + 1);
+
+        const wholeScaled = BigInt(wholePart || "0") * PRICE_SCALE;
+
+        const paddedFrac = fracPart.padEnd(5, "0").slice(0, 5);
+
+        const fracScaled = BigInt(paddedFrac || "0");
+
+        return wholeScaled + fracScaled;
+    }
+
+    liquidateUser(userId: string, market: string) {
+        // this.positionsByMarket.set(market, filteredPositions)
+        // this.positionsByKey.delete(`${p.userId}_${p.market}`)
+
+    }
 }
