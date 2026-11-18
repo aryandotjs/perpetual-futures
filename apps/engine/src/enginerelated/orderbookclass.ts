@@ -21,11 +21,17 @@ export class Orderbook {
     bids: order[];
     asks: order[];
     asset: string;
+    markprice: string;
 
     constructor(asset: any, asks: any[], bids: any[]) {
         this.asks = []
         this.bids = []
         this.asset = asset
+        this.markprice = "0"
+    }
+
+    setTickerPrice(price: string) {
+        this.markprice = price
     }
 
     addOrder(order: order) {

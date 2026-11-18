@@ -16,30 +16,50 @@ type position = {
     quantity: string,
     avgPrice: string,
     lockedMargin: string,
-    liquidationPrice: string
+    liquidationPrice: string,
+    status: "isLiquidating" | "normal"
 }
 
+const PRICE_SCALE = 10n ** 5n
 
 export class positionManager {
 
     positionsByKey: Map<string, position>;
 
-    positionsByMarket: Map<string, position>;
+    positionsByMarket: Map<string, position[]>;
 
     constructor() {
         this.positionsByKey = new Map()
         this.positionsByMarket = new Map()
     }
 
+
     LiquidationCheckForTickerPrice(market: string, price: string) {
-        console.log("lega ")
+
+        const scaledPrice = this.stringToScaledBigInt(price)
+
+        const AllPositionsByMarket = this.positionsByMarket.get(market)
+
+        if (!AllPositionsByMarket) return
+
+        const FlagedPositions: position[] = []
+
+        AllPositionsByMarket.forEach(p => {
+            if (p.liquidationPrice >= price && p.status === "normal") {
+                FlagedPositions.push(p)
+                p.status = "isLiquidating"
+            }
+        });
+
+        return FlagedPositions
     }
 
-    addPosition(userId: string, market: string, leverage: string, quantity: string, price: string) {
+
+    addPosition(userId: string, market: string, leverage: string, quantity: string, price: string, status: "isLiquidating" | "normal") {
         const userPosition = this.positionsByKey.get(`${userId}_${market}`)
 
         if (!userPosition) {
-            this.addNewPosition(userId, market, leverage, quantity, price)
+            this.addNewPosition(userId, market, leverage, quantity, price, status)
             return;
         }
         const oldUserQty = userPosition.quantity
@@ -53,17 +73,24 @@ export class positionManager {
 
     }
 
-    addNewPosition(userId: string, market: string, leverage: string, quantity: string, price: string) {
+    addNewPosition(userId: string, market: string, leverage: string, quantity: string, price: string, status: "isLiquidating" | "normal") {
 
-        this.positionsByKey.set(`${userId}_${market}`, {
+        const position: position = {
             userId,
             market,
             quantity: quantity,
             avgPrice: price,
             leverage: leverage,
             lockedMargin: (Number(quantity) * Number(price) / Number(leverage)).toString(),
-            liquidationPrice: ""
-        })
+            liquidationPrice: "",
+            status: status
+        }
+
+        this.positionsByKey.set(`${userId}_${market}`, position)
+
+        const prevPositions = this.positionsByMarket.get(market)
+        this.positionsByMarket.set(market, prevPositions ? [...prevPositions, position] : [position])
+
 
     }
 
@@ -116,7 +143,7 @@ export class positionManager {
 
             this.positionsByKey.delete(`${userPosition.userId}_${userPosition.market}`)
 
-            this.addNewPosition(userPosition.userId, userPosition.market, userPosition.leverage, newQty, price)
+            this.addNewPosition(userPosition.userId, userPosition.market, userPosition.leverage, newQty, price, "normal")
 
             const profitOrLoss = this.handleProfitAndLoss(userPosition.userId, userPosition.market, userPosition.avgPrice, userPosition.quantity, price)
 

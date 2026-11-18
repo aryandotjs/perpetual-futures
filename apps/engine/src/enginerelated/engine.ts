@@ -13,13 +13,16 @@ type balance = {
 export class Engine {
 
     private balances: Map<string, balance> = new Map()
-    private orderbooks: Orderbook[] = [];
+    private orderbooks: Record<string, Orderbook> = {};
     private positionsManager: positionManager;
+    private InsuranceFund: string
+
 
     constructor() {
         const solOrderbook = new Orderbook("SOL_USD", [], [])
-        this.orderbooks.push(solOrderbook)
-        this.positionsManager = new positionManager()
+        this.orderbooks["SOL"] = solOrderbook
+        this.positionsManager = new positionManager
+        this.InsuranceFund = "0"
     }
 
     inspectAndLockBalance(userId: string, market: string, price: string, quantity: string, leverage: string) {
@@ -36,6 +39,58 @@ export class Engine {
         }
     }
 
+
+    handleTickerPrice({ market, price }: { market: string, price: string }) {
+        // first check if prcie is wrong or right ?? 
+        const orderbook: Orderbook = this.orderbooks[market]
+
+        if (orderbook) {
+            orderbook.setTickerPrice(price)
+        }
+
+        const liquidatedPositions = this.positionsManager.LiquidationCheckForTickerPrice(market, price)
+
+        if (liquidatedPositions) {
+
+            liquidatedPositions.forEach(p => {
+
+                const order: order = {
+                    market: p.market,
+                    price: p.avgPrice,
+                    quantity: p.quantity,
+                    filled: 0,
+                    leverage: p.leverage,
+                    userId: p.userId,
+                    orderId: randomUUID(),
+                    side: Number(p.quantity) <= 0 ? "sell" : "buy",
+                    orderType: "limit",
+                    time: Date.now()
+                }
+
+                const result = orderbook.addOrder(order)
+
+                if (result && result.fills) {
+                    // forgot half filled for now 
+
+                    if (Number(result.finalOrder.filled) == Number(result.finalOrder.quantity)) {
+
+                        this.positionsManager.liquidateUser(p.userId, p.market)
+
+                        result.fills.forEach((fill) => {
+
+                            const makerMatchedQty = fill.isMakerBuyer ? fill.matchedQuantity : `-${fill.matchedQuantity}`
+
+                            this.positionsManager.addPosition(fill.makerUserId, fill.market, fill.makerLevrage, makerMatchedQty, fill.price, "normal")
+                            /// inke account se pese nikal locked me daal 
+                        })
+
+                    }
+                }
+            })
+
+        }
+    }
+
     process({ requestId, data }: { requestId: string, data: ApiToEngine }) {
         switch (data.type) {
 
@@ -43,7 +98,8 @@ export class Engine {
                 try {
                     const { userId, market, price, quantity, leverage, side, orderType } = data.payload
 
-                    const orderbook = this.orderbooks.find(a => a.getMarket() === market)
+                    ///sady check this line if market is some thing else ??
+                    const orderbook = this.orderbooks[market]
 
                     if (!orderbook) throw Error("invalid market")
 
@@ -215,7 +271,7 @@ export class Engine {
             const makerMatchedQty = fill.isMakerBuyer ? fill.matchedQuantity : `-${fill.matchedQuantity}`
             const takerMatchedQty = fill.isMakerBuyer ? `-${fill.matchedQuantity}` : fill.matchedQuantity
 
-            const resultMaker = this.positionsManager.addPosition(fill.makerUserId, market, fill.makerLevrage, makerMatchedQty, fill.price)
+            const resultMaker = this.positionsManager.addPosition(fill.makerUserId, market, fill.makerLevrage, makerMatchedQty, fill.price, "normal")
 
             if (resultMaker) {
                 const userBalance = this.balances.get(fill.makerUserId)
@@ -230,7 +286,7 @@ export class Engine {
                 // userBalance[market].available = (Number(userBalance[market].available) + resultMaker.reducedMargin).toString()
             }
 
-            const resultTaker = this.positionsManager.addPosition(fill.takerUserId, market, fill.takerLevrage, takerMatchedQty, fill.price)
+            const resultTaker = this.positionsManager.addPosition(fill.takerUserId, market, fill.takerLevrage, takerMatchedQty, fill.price, "normal")
 
             if (resultTaker) {
                 const userBalance = this.balances.get(fill.takerUserId)
