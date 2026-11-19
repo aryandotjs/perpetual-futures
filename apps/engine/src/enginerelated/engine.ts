@@ -15,6 +15,7 @@ export class Engine {
     private balances: Map<string, balance> = new Map()
     private orderbooks: Record<string, Orderbook> = {};
     private positionsManager: positionManager;
+
     private InsuranceFund: Map<string, string> = new Map()
 
 
@@ -59,8 +60,9 @@ export class Engine {
             liquidatedPositions.forEach(p => {
 
                 const order: order = {
+                    timeInForce: "ioc",
                     market: p.market,
-                    price: p.avgPrice,
+                    price: p.bankrupcyPrice.toString(),
                     quantity: p.quantity,
                     filled: 0,
                     leverage: p.leverage,
@@ -73,23 +75,77 @@ export class Engine {
 
                 const result = orderbook.addOrder(order)
 
-                if (result && result.fills) {
-                    // forgot half filled for now 
+                if (result.fills.length > 0) {
 
                     if (Number(result.finalOrder.filled) == Number(result.finalOrder.quantity)) {
 
                         this.positionsManager.liquidateUser(p.userId, p.market)
+
+                        const marketInsuranceFund = this.InsuranceFund.get(market)
+
+                        const extraCash = 0;
+
+                        if (!marketInsuranceFund) throw new Error("market insuranceFund didnt found")
 
                         result.fills.forEach((fill) => {
 
                             const makerMatchedQty = fill.isMakerBuyer ? fill.matchedQuantity : `-${fill.matchedQuantity}`
 
                             this.positionsManager.addPosition(fill.makerUserId, fill.market, fill.makerLevrage, makerMatchedQty, fill.price, "normal")
+
+                            /// paise insuranceFund me daal bache hue 
+
+                            const priceDiff = p.bankrupcyPrice - Number(fill.price)
+
+                            const qty = fill.matchedQuantity
+
+                            const Margin = p.lockedMargin
+
+
+
                             /// inke account se pese nikal locked me daal 
+
                         })
 
+                    } else {
+                        //half filled logic
                     }
+
                 }
+
+                if (result.fills.length === 0) {
+
+                    //// no thing get matched logic
+
+                    const order: order = {
+                        timeInForce: "ioc",
+                        market: p.market,
+                        price: "",
+                        quantity: p.quantity,
+                        filled: 0,
+                        leverage: p.leverage,
+                        userId: p.userId,
+                        orderId: randomUUID(),
+                        side: Number(p.quantity) <= 0 ? "sell" : "buy",
+                        orderType: "market",
+                        time: Date.now()
+                    }
+
+                    const result = orderbook.addOrder(order)
+
+                    if (result.fills.length > 0) {
+
+                        if (Number(result.finalOrder.filled) == Number(result.finalOrder.quantity)) {
+
+                        }
+
+                    } else {
+
+                    }
+
+                }
+
+
             })
 
         }
@@ -109,7 +165,8 @@ export class Engine {
 
                     this.inspectAndLockBalance(userId, market, price, quantity, leverage)
 
-                    const order = {
+                    const order: order = {
+                        timeInForce: "normal",
                         market,
                         price,
                         quantity,
