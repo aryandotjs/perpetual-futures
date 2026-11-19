@@ -15,14 +15,18 @@ export class Engine {
     private balances: Map<string, balance> = new Map()
     private orderbooks: Record<string, Orderbook> = {};
     private positionsManager: positionManager;
-    private InsuranceFund: string
+    private InsuranceFund: Map<string, string> = new Map()
 
 
     constructor() {
         const solOrderbook = new Orderbook("SOL_USD", [], [])
         this.orderbooks["SOL"] = solOrderbook
         this.positionsManager = new positionManager
-        this.InsuranceFund = "0"
+        this.InsuranceFund.set("SOL", "0")
+    }
+
+    getInsuranceFund(market: string) {
+        return this.InsuranceFund.get(market) ?? 0
     }
 
     inspectAndLockBalance(userId: string, market: string, price: string, quantity: string, leverage: string) {
