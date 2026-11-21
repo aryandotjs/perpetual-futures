@@ -3,7 +3,7 @@ import { ApiToEngine, order, ProcessesCompletion, ProcessesRejection } from "../
 import { SendBackToBackend } from "../toBackend";
 import { fill, Orderbook } from "./orderbookclass";
 import { randomUUID } from "node:crypto";
-import { positionManager } from "./positionManager";
+import { position, positionManager } from "./positionManager";
 type balance = {
     [key: string]: {
         available: string
@@ -47,109 +47,144 @@ export class Engine {
 
     handleTickerPrice({ market, price }: { market: string, price: string }) {
         // first check if prcie is wrong or right ?? 
-        const orderbook: Orderbook = this.orderbooks[market]
+        // if (orderbook) { orderbook.setTickerPrice(price) }
 
-        if (orderbook) {
-            orderbook.setTickerPrice(price)
-        }
+        const orderbook: Orderbook = this.orderbooks[market]
+        if (!orderbook) throw Error("no orderbook available")
 
         const liquidatedPositions = this.positionsManager.LiquidationCheckForTickerPrice(market, price)
+        if (!liquidatedPositions) return
 
-        if (liquidatedPositions) {
+        // #### Step 1: Open Order Cancellation
+        // Before placing any closing orders,
+        //  the risk engine immediately **
+        //  cancels all open orders ** for that account / symbol[3].This unfreezes
+        //  any margin locked up by
+        //  pending limit orders to see if margin compliance can be restored without closing positions[3].
 
-            liquidatedPositions.forEach(p => {
+        liquidatedPositions.forEach(p => {
 
-                const order: order = {
-                    timeInForce: "ioc",
-                    market: p.market,
-                    price: p.bankrupcyPrice.toString(),
-                    quantity: p.quantity,
-                    filled: 0,
-                    leverage: p.leverage,
-                    userId: p.userId,
-                    orderId: randomUUID(),
-                    side: Number(p.quantity) <= 0 ? "sell" : "buy",
-                    orderType: "limit",
-                    time: Date.now()
-                }
+            const { fills, finalOrder } = this.addIocLimitOrderForliquidation(p, orderbook)
 
-                const result = orderbook.addOrder(order)
-
-                if (result.fills.length > 0) {
-
-                    if (Number(result.finalOrder.filled) == Number(result.finalOrder.quantity)) {
-
-                        this.positionsManager.liquidateUser(p.userId, p.market)
-
-                        const marketInsuranceFund = this.InsuranceFund.get(market)
-
-                        const extraCash = 0;
-
-                        if (!marketInsuranceFund) throw new Error("market insuranceFund didnt found")
-
-                        result.fills.forEach((fill) => {
-
-                            const makerMatchedQty = fill.isMakerBuyer ? fill.matchedQuantity : `-${fill.matchedQuantity}`
-
-                            this.positionsManager.addPosition(fill.makerUserId, fill.market, fill.makerLevrage, makerMatchedQty, fill.price, "normal")
-
-                            /// paise insuranceFund me daal bache hue 
-
-                            const priceDiff = p.bankrupcyPrice - Number(fill.price)
-
-                            const qty = fill.matchedQuantity
-
-                            const Margin = p.lockedMargin
+            //remove all resing order for this postion ? in orderbook , decide where to do this !
 
 
+            if (fills.length > 0) {
 
-                            /// inke account se pese nikal locked me daal 
+                if (Number(finalOrder.filled) == Number(finalOrder.quantity)) {
+                    this.positionsManager.liquidateUser(p.userId, p.market)
+                    this.handleFillForInsuranceFund(fills, market, p)
+                } else {
 
-                        })
+                    ///// decreasse the postion
 
-                    } else {
-                        //half filled logic
-                    }
+                    this.handleFillForInsuranceFund(fills, market, p)
+
+                    const remainingQty = Number(finalOrder.quantity) - finalOrder.filled
+
+                    ////lets say i have removed the qty in positions whihc are filled 
+
+                    p.quantity = (Number(p.quantity) - finalOrder.filled).toString()
+
+                    this.deleverage(p, price)
 
                 }
 
-                if (result.fills.length === 0) {
+            }
+            if (fills.length === 0) {
 
-                    //// no thing get matched logic
+                this.positionsManager.liquidateUser(p.userId, p.market)
 
-                    const order: order = {
-                        timeInForce: "ioc",
-                        market: p.market,
-                        price: "",
-                        quantity: p.quantity,
-                        filled: 0,
-                        leverage: p.leverage,
-                        userId: p.userId,
-                        orderId: randomUUID(),
-                        side: Number(p.quantity) <= 0 ? "sell" : "buy",
-                        orderType: "market",
-                        time: Date.now()
-                    }
+                this.deleverage(p, price)
 
-                    const result = orderbook.addOrder(order)
+            }
 
-                    if (result.fills.length > 0) {
+        })
 
-                        if (Number(result.finalOrder.filled) == Number(result.finalOrder.quantity)) {
-
-                        }
-
-                    } else {
-
-                    }
-
-                }
-
-
-            })
-
-        }
     }
+
+    addIocLimitOrderForliquidation(position: position, orderbook: Orderbook) {
+        const order: order = {
+            timeInForce: "ioc",
+            market: position.market,
+            price: position.maxSlippagePrice.toString(),
+            quantity: position.quantity,
+            filled: 0,
+            leverage: position.leverage,
+            userId: position.userId,
+            orderId: randomUUID(),
+            side: Number(position.quantity) <= 0 ? "sell" : "buy",
+            orderType: "limit",
+            time: Date.now()
+        }
+
+        const result = orderbook.addOrder(order)
+
+        return result
+    }
+
+    handleFillForInsuranceFund(fills: fill[], market: string, position: position) {
+
+        const marketInsuranceFund = this.InsuranceFund.get(market)
+
+        let extraCash = 0;
+
+        if (!marketInsuranceFund) throw new Error("market insuranceFund didnt found")
+
+        fills.forEach((fill) => {
+
+            const makerMatchedQty = fill.isMakerBuyer ? fill.matchedQuantity : `-${fill.matchedQuantity}`
+
+            this.positionsManager.addPosition(fill.makerUserId, fill.market, fill.makerLevrage, makerMatchedQty, fill.price, "normal")
+
+            /// insurance fund logic
+            const qty = fill.matchedQuantity
+            const priceDiff = Number(position.quantity) < 0 ? (position.bankcrupcyPrice - Number(fill.price)) : (Number(fill.price) - position.bankcrupcyPrice)
+            const Cash = priceDiff * Number(qty)
+            extraCash += Cash
+            /// inke account se pese nikal locked me daal 
+
+        })
+
+        this.InsuranceFund.set(market, (Number(marketInsuranceFund) + extraCash).toString())
+    }
+
+    deleverage(position: position, markprice: string) {
+
+        const curruntPositions = this.positionsManager.positionsByMarket.get(position.market)
+        if (!curruntPositions) throw Error("no currunt for this position while doing deleverage")
+
+        const filtered = curruntPositions?.filter((a, b) => {
+            this.positionsManager.calculateUnrealizedPandL(a, markprice)
+        })
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     process({ requestId, data }: { requestId: string, data: ApiToEngine }) {
         switch (data.type) {
