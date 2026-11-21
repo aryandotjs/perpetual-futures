@@ -1,22 +1,16 @@
-// type position = {
-//     userId: "user_123",
-//     market: "BTC_USD",
-//     size: 2.5,          // Positive for Long, Negative for Short, 0 for Flat
-//     entryPrice: 61000,  // The weighted average entry price
-//     leverage: 10,       // The multiplier chosen when opening
-//     marginLocked: 1525
-// }
 
 import { fill } from "./orderbookclass";
 
-type position = {
+export type position = {
     userId: string,
     market: string,
     leverage: string,
     quantity: string,
     avgPrice: string,
     lockedMargin: string,
-    liquidationPrice: string,
+    liquidationPrice: number,
+    bankcrupcyPrice: number,
+    maxSlippagePrice: number,
     status: "isLiquidating" | "normal"
 }
 
@@ -33,6 +27,28 @@ export class positionManager {
         this.positionsByMarket = new Map()
     }
 
+    getLiquidationPrice(isLong: boolean, entryPrice: number, collateral: number, size: number, mmr: number) {
+        const unitCollateral = collateral / size;
+        if (isLong) {
+            return (entryPrice - unitCollateral) / (1 - mmr);
+        } else {
+            return (entryPrice + unitCollateral) / (1 + mmr);
+        }
+    }
+
+    getBankrupcyPrice(isLong: boolean, entryPrice: number, margin: number, size: number) {
+        const unitMargin = margin / size;
+        return isLong ? entryPrice - unitMargin : entryPrice + unitMargin
+    }
+
+    getMaxSlippagePrice(isLong: boolean, entryPrice: number, margin: number, size: number, slippagePct = 0.03) {
+        const unitMargin = margin / Math.abs(size);
+        const unitSlippage = entryPrice * slippagePct;
+
+        return isLong
+            ? Math.max(0, entryPrice - unitMargin - unitSlippage)
+            : entryPrice + unitMargin + unitSlippage;
+    }
 
     LiquidationCheckForTickerPrice(market: string, price: string) {
 
@@ -45,7 +61,7 @@ export class positionManager {
         const FlagedPositions: position[] = []
 
         AllPositionsByMarket.forEach(p => {
-            if (p.liquidationPrice >= price && p.status === "normal") {
+            if (p.liquidationPrice >= Number(price) && p.status === "normal") {
                 FlagedPositions.push(p)
                 p.status = "isLiquidating"
             }
@@ -74,6 +90,7 @@ export class positionManager {
     }
 
     addNewPosition(userId: string, market: string, leverage: string, quantity: string, price: string, status: "isLiquidating" | "normal") {
+        const lockedMargin = (Number(quantity) * Number(price) / Number(leverage)).toString()
 
         const position: position = {
             userId,
@@ -81,8 +98,10 @@ export class positionManager {
             quantity: quantity,
             avgPrice: price,
             leverage: leverage,
-            lockedMargin: (Number(quantity) * Number(price) / Number(leverage)).toString(),
-            liquidationPrice: "",
+            lockedMargin,
+            liquidationPrice: this.getLiquidationPrice(Number(quantity) > 0 ? true : false, Number(price), Number(lockedMargin), Number(quantity), 0.05),
+            bankcrupcyPrice: this.getBankrupcyPrice(Number(quantity) > 0 ? true : false, Number(price), Number(lockedMargin), Number(quantity)),
+            maxSlippagePrice: this.getMaxSlippagePrice(Number(quantity) > 0 ? true : false, Number(price), Number(lockedMargin), Number(quantity)),
             status: status
         }
 
@@ -120,7 +139,7 @@ export class positionManager {
 
             userPosition.lockedMargin = (Number(userPosition.lockedMargin) - reducedMargin).toString()
 
-            const profitOrLoss = this.handleProfitAndLoss(userPosition.userId, userPosition.market, userPosition.avgPrice, quantity, price)
+            const profitOrLoss = this.handleProfitAndLoss(userPosition.avgPrice, quantity, price)
 
             return { reducedMargin, profitOrLoss }
 
@@ -131,7 +150,7 @@ export class positionManager {
 
             const reducedMargin = (Math.abs(qty) * Number(userPosition.avgPrice)) / Number(userPosition.leverage)
 
-            const profitOrLoss = this.handleProfitAndLoss(userPosition.userId, userPosition.market, userPosition.avgPrice, quantity, price)
+            const profitOrLoss = this.handleProfitAndLoss(userPosition.avgPrice, quantity, price)
 
             return { reducedMargin, profitOrLoss }
 
@@ -145,14 +164,14 @@ export class positionManager {
 
             this.addNewPosition(userPosition.userId, userPosition.market, userPosition.leverage, newQty, price, "normal")
 
-            const profitOrLoss = this.handleProfitAndLoss(userPosition.userId, userPosition.market, userPosition.avgPrice, userPosition.quantity, price)
+            const profitOrLoss = this.handleProfitAndLoss(userPosition.avgPrice, userPosition.quantity, price)
 
             return { reducedMargin, profitOrLoss }
         }
     }
 
 
-    handleProfitAndLoss(userId: string, market: string, avgPrice: string, quantity: string, fillPrice: string) {
+    handleProfitAndLoss(avgPrice: string, quantity: string, fillPrice: string) {
 
         if (Number(quantity) > 0) {
             let profit;
@@ -188,54 +207,21 @@ export class positionManager {
     }
 
 
-    //////////////////////// diff breed 
+    calculateUnrealizedPandL(position: position, markPrice: string) {
 
-    // liquidationChecker(markPrice: string) {
+        if (Number(position.quantity) > 0) {
 
-    //     const liquidatedUsers: any[] = []
+            const ProfitOrLoss = ((Number(markPrice) - Number(position.avgPrice)) * Math.abs(Number(position.quantity))).toString()
+            return ProfitOrLoss
 
-    //     this.positions.forEach((position) => {
-    //         const UnrealizedProfitOrLoss = this.calculateUnrealizedPandL(position, markPrice)
+        } else {
 
-    //         const margin = (Number(position.avgPrice) * Math.abs(Number(position.quantity)) / Number(position.leverage))
-    //         const maintenanceMargin = margin * 0.5
+            const ProfitOrLoss = ((Number(position.avgPrice) - Number(markPrice)) * Math.abs(Number(position.quantity))).toString()
+            return ProfitOrLoss
 
-    //         if (Number(UnrealizedProfitOrLoss) < 0 && maintenanceMargin < Math.abs(Number(UnrealizedProfitOrLoss))) {
-    //             // this.liquadateUser(position.userId, position.market)
+        }
 
-    //             /////////////we have to add a opp order what ever order we close 
-    //             liquidatedUsers.push({
-    //                 userId: position.userId,
-    //                 market: position.market,
-    //                 margin
-    //             })
-    //         }
-
-    //     })
-    //     return liquidatedUsers;
-    // }
-
-    // calculateUnrealizedPandL(position: position, markPrice: string) {
-
-    //     if (Number(position.quantity) > 0) {
-
-    //         const ProfitOrLoss = ((Number(markPrice) - Number(position.avgPrice)) * Math.abs(Number(position.quantity))).toString()
-    //         return ProfitOrLoss
-
-    //     } else {
-
-    //         const ProfitOrLoss = ((Number(position.avgPrice) - Number(markPrice)) * Math.abs(Number(position.quantity))).toString()
-    //         return ProfitOrLoss
-
-    //     }
-
-    // }
-
-    // liquadateUser(userId: string, market: string) {
-    //     this.positions.delete(`${userId}_${market}`)
-    // }
-
-
+    }
 
     stringToScaledBigInt(price: string) {
         const input = price.trim()
